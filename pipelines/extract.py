@@ -9,7 +9,6 @@ from urllib.parse import quote_plus
 
 load_dotenv()
 
-
 # KẾT NỐI DATABASE
 def get_engine():
     user = os.getenv('DB_USER')
@@ -38,7 +37,6 @@ def extract_stock(symbol: str, start: str, end: str) -> pd.DataFrame:
     return df
 
 # EXTRACT 2: COINGECKO - Giá crypto
-
 def extract_crypto(symbol: str, coin_id: str, days: int = 30) -> pd.DataFrame:
     print(f"  Extracting crypto: {symbol} ({days} days)...")
 
@@ -77,7 +75,6 @@ def extract_exchange_rates(base: str = "USD", targets: list = ["VND", "EUR"]) ->
     return df
 
 # LOAD VÀO RAW LAYER
-
 def load_to_raw(df: pd.DataFrame, table: str):
     engine = get_engine()
     df.to_sql(
