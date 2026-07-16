@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine ,text
 from urllib.parse import quote_plus
 
 load_dotenv()
@@ -76,6 +76,9 @@ def build_daily_summary() -> pd.DataFrame:
 # LOAD VÀO ANALYTICS LAYER
 def load_to_analytics(df: pd.DataFrame):
     engine = get_engine()
+    with engine.connect() as conn:
+        conn.execute(text("TRUNCATE TABLE analytics.daily_market_summary"))
+        conn.commit()    
     df.to_sql(
         "daily_market_summary",
         schema="analytics",

@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine ,text
 from urllib.parse import quote_plus
 
 load_dotenv()
@@ -106,6 +106,10 @@ def transform_exchange_rates() -> pd.DataFrame:
 #lOAD VAO STAGING LAYER
 def load_to_staging(df: pd.DataFrame, table: str):
     engine = get_engine()
+    # Xóa data cũ trước khi insert mới (tránh duplicate)
+    with engine.connect() as conn:
+        conn.execute(text(f"TRUNCATE TABLE staging.{table}"))
+        conn.commit()
     df.to_sql(
         table,
         schema="staging",

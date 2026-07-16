@@ -114,11 +114,9 @@ def check_row_consistency(conn):
 
     assert staging_stock >= raw_stock * 0.95, \
         f" Staging stock ({staging_stock}) mất quá nhiều dòng so với raw ({raw_stock})!"
-    print(f" Raw stock: {raw_stock} → Staging stock: {staging_stock} ✅")
+    print(f" Raw stock: {raw_stock} → Staging stock: {staging_stock} ")
 
     print(" Consistency check passed!")
-
-
 
 # HÀM CHÍNH
 def run_validate():

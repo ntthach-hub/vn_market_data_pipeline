@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text 
 from vnstock import Vnstock
 from urllib.parse import quote_plus
 
@@ -96,6 +96,15 @@ def run_extract():
     # Lấy data 1 năm gần nhất
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
+    # TRUNCATE 1 lần duy nhất ở đây
+    engine = get_engine()
+    with engine.connect() as conn:
+        conn.execute(text("TRUNCATE TABLE raw.stock_prices"))
+        conn.execute(text("TRUNCATE TABLE raw.crypto_prices"))
+        conn.execute(text("TRUNCATE TABLE raw.exchange_rates"))
+        conn.commit()
+    print(" Đã xóa data cũ trong raw layer")
 
     # Extract và load stock (3 mã cổ phiếu)
     for symbol in ["VNM", "VCB", "FPT"]:
