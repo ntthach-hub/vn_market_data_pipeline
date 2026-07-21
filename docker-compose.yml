@@ -1,0 +1,39 @@
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15
+    container_name: vn_market_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}  # ← lấy từ .env
+      POSTGRES_DB: vn_market_db
+    ports:
+      - "5434:5432"                            # dùng port 5434 để không đụng PostgreSQL local
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/create_table.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ETL Pipeline
+  pipeline:
+    build: .
+    container_name: vn_market_pipeline
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres                                   # ← tên service, không phải localhost
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:
