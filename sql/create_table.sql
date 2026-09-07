@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS raw.stock_prices (
     volume      BIGINT,
     ingested_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE raw.stock_prices ADD CONSTRAINT uq_stock_symbol_time UNIQUE (symbol, time);
 
 CREATE TABLE IF NOT EXISTS raw.crypto_prices (
     id              SERIAL PRIMARY KEY,
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS raw.crypto_prices (
     price_usd       NUMERIC,
     ingested_at     TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE raw.crypto_prices ADD CONSTRAINT uq_crypto_symbol_ts UNIQUE (symbol, timestamp_ms);
 
 CREATE TABLE IF NOT EXISTS raw.exchange_rates (
     id          SERIAL PRIMARY KEY,
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS raw.exchange_rates (
     date        DATE,
     ingested_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE raw.exchange_rates ADD CONSTRAINT uq_fx_base_target_date UNIQUE (base, target, date);
 
 -- STAGING LAYER: Data đã làm sạch
 CREATE TABLE IF NOT EXISTS staging.stock_prices (
@@ -45,6 +48,7 @@ CREATE TABLE IF NOT EXISTS staging.stock_prices (
     volume      BIGINT,
     processed_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE staging.stock_prices ADD CONSTRAINT uq_staging_stock_symbol_date UNIQUE (symbol, date);
 
 CREATE TABLE IF NOT EXISTS staging.crypto_prices (
     id          SERIAL PRIMARY KEY,
@@ -55,6 +59,7 @@ CREATE TABLE IF NOT EXISTS staging.crypto_prices (
     price_vnd   NUMERIC,            -- quy đổi sang VND
     processed_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE staging.crypto_prices ADD CONSTRAINT uq_staging_crypto_symbol_date_hour UNIQUE (symbol, date, hour);
 
 CREATE TABLE IF NOT EXISTS staging.exchange_rates (
     id          SERIAL PRIMARY KEY,
@@ -64,6 +69,7 @@ CREATE TABLE IF NOT EXISTS staging.exchange_rates (
     date        DATE,
     processed_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE staging.exchange_rates ADD CONSTRAINT uq_staging_fx_base_target_date UNIQUE (base, target, date);
 
 -- ANALYTICS LAYER: Data tổng hợp để phân tích
 
@@ -78,3 +84,4 @@ CREATE TABLE IF NOT EXISTS analytics.daily_market_summary (
     price_change_pct NUMERIC,       -- % thay đổi so với ngày trước
     created_at      TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE analytics.daily_market_summary ADD CONSTRAINT uq_summary_date UNIQUE (date, symbol);

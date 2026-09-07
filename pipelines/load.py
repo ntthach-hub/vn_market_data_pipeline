@@ -2,8 +2,10 @@ import os
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
-from sqlalchemy import create_engine ,text
+from sqlalchemy import create_engine, text, Table, MetaData
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from urllib.parse import quote_plus
+ 
 
 load_dotenv()
 
@@ -73,21 +75,39 @@ def build_daily_summary() -> pd.DataFrame:
     print(f" Daily summary: {len(df)} rows")
     return df
 
-# LOAD VÀO ANALYTICS LAYER
-def load_to_analytics(df: pd.DataFrame):
+# UPSERT VÀO ANALYTICS LAYER (thay cho TRUNCATE + append)
+def load_to_analytics(df: pd.DataFrame, conflict_cols=["date", "symbol"]):
+    if df.empty:
+        print("  Không có dòng nào để load vào analytics.daily_market_summary")
+        return
+ 
     engine = get_engine()
-    with engine.connect() as conn:
-        conn.execute(text("TRUNCATE TABLE analytics.daily_market_summary"))
-        conn.commit()    
-    df.to_sql(
-        "daily_market_summary",
-        schema="analytics",
-        con=engine,
-        if_exists="append",
-        index=False
+    metadata = MetaData(schema="analytics")
+    tbl = Table("daily_market_summary", metadata, autoload_with=engine)
+ 
+    records = df.to_dict(orient="records")
+ 
+    # created_at bị loại khỏi update_cols -> row cũ giữ nguyên created_at
+    # gốc, chỉ các cột số liệu (close_price, volume, price_change_pct...)
+    # được cập nhật giá trị mới.
+    update_cols = {
+        c.name: c
+        for c in tbl.columns
+        if c.name not in conflict_cols and c.name  not in ("id", "created_at")
+    }
+ 
+    stmt = pg_insert(tbl).values(records)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=conflict_cols,
+        set_={col: getattr(stmt.excluded, col) for col in update_cols},
     )
-    print(f"  Loaded {len(df)} rows to analytics.daily_market_summary")
-
+ 
+    with engine.begin() as conn:
+        conn.execute(stmt)
+ 
+    print(f"  Upserted {len(records)} rows vào analytics.daily_market_summary")
+ 
+ 
 
 # HÀM CHÍNH
 def run_load():
