@@ -14,17 +14,27 @@
 - **789** stock records (VNM, VCB, FPT)
 - **1,442** crypto records (BTC, ETH)
 - **851** daily summary records generated
-- **100%** data quality checks passed
+- Các kiểm tra chất lượng được cấu hình đã passed ở lần chạy demo được ghi lại; chưa phải cam kết toàn bộ dữ liệu hợp lệ.
+
+Các số lượng trên là kết quả demo được ghi lại trước đây, chưa được xác minh lại trong đợt review hiện tại.
 
 ---
 
 ## 🏗️ Architecture
+```text
 VNStock API ──┐
 CoinGecko API ─┼──► Extract ──► RAW ──► Transform ──► STAGING ──► Load ──► ANALYTICS
-ExchangeRate ──┘ ──► Validate
+ExchangeRate ──┘
+Validate chạy sau Load và kiểm tra các bảng đã ghi.
+```
 
 
 **3 data sources → 3-layer PostgreSQL warehouse → automated quality checks**
+
+- [ERD và grain/business key của 7 bảng](docs/data-model.md)
+- [Data flow, thứ tự xử lý và giới hạn hiện tại](docs/data-flow.md)
+
+Stock extraction có incremental theo ngày cuối mỗi symbol; Transform/Load hiện đọc và xử lý toàn bộ bảng. Project chưa có scheduler và chưa được xác nhận sẵn sàng vận hành production.
 
 ---
 
@@ -57,6 +67,15 @@ cd vn-market-data-pipeline
 cp .env.example .env    # điền password
 docker-compose up --build
 ```
+
+### Kiểm thử hồi quy
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
+Các test validation dùng mock và SQLite in-memory; không ghi vào PostgreSQL, không gọi API. Chúng không thay thế kiểm thử end-to-end với PostgreSQL thực tế.
 
 📁 Project Structure
 pipelines/

@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from urllib.parse import quote_plus
@@ -37,6 +36,8 @@ def check_row_counts(conn):
             text(f"SELECT COUNT(*) FROM {schema}.{table}")
         ).scalar_one()
         print(f"     {schema}.{table}: {count} rows")
+        if count == 0:
+            raise ValueError(f"{schema}.{table} không có dữ liệu!")
 
     print("   Row count check passed!")
 
@@ -55,7 +56,8 @@ def check_nulls(conn):
         count = conn.execute(
             text(f"SELECT COUNT(*) FROM {table} WHERE {condition}")
         ).scalar_one()
-        assert count == 0, f" {table} có {count} dòng NULL!"
+        if count != 0:
+            raise ValueError(f"{table} có {count} dòng NULL!")
         print(f"     {table}: không có NULL ")
 
     print("  Null check passed!")
@@ -70,7 +72,8 @@ def check_valid_values(conn):
         SELECT COUNT(*) FROM staging.stock_prices
         WHERE close <= 0 OR open <= 0 OR high <= 0 OR low <= 0
     """)).scalar_one()
-    assert invalid_stock == 0, f" Stock có {invalid_stock} giá trị âm!"
+    if invalid_stock != 0:
+        raise ValueError(f"Stock có {invalid_stock} dòng có giá <= 0!")
     print("     Stock prices > 0 ")
 
     # Giá crypto phải > 0
@@ -78,7 +81,8 @@ def check_valid_values(conn):
         SELECT COUNT(*) FROM staging.crypto_prices
         WHERE price_usd <= 0
     """)).scalar_one()
-    assert invalid_crypto == 0, f" Crypto có {invalid_crypto} giá trị âm!"
+    if invalid_crypto != 0:
+        raise ValueError(f"Crypto có {invalid_crypto} dòng có giá <= 0!")
     print("     Crypto prices > 0 ")
 
     # Tỉ giá phải > 0
@@ -86,7 +90,8 @@ def check_valid_values(conn):
         SELECT COUNT(*) FROM staging.exchange_rates
         WHERE rate <= 0
     """)).scalar_one()
-    assert invalid_rate == 0, f" Exchange rate có {invalid_rate} giá trị âm!"
+    if invalid_rate != 0:
+        raise ValueError(f"Exchange rate có {invalid_rate} dòng có rate <= 0!")
     print("     Exchange rates > 0 ")
 
     # Symbol cổ phiếu chỉ được là VNM, VCB, FPT
@@ -94,7 +99,8 @@ def check_valid_values(conn):
         SELECT COUNT(*) FROM staging.stock_prices
         WHERE symbol NOT IN ('VNM', 'VCB', 'FPT')
     """)).scalar_one()
-    assert invalid_symbol == 0, f" Có {invalid_symbol} symbol lạ!"
+    if invalid_symbol != 0:
+        raise ValueError(f"Có {invalid_symbol} symbol lạ!")
     print("     Stock symbols hợp lệ ")
 
     print(" Valid values check passed!")
@@ -104,17 +110,21 @@ def check_valid_values(conn):
 def check_row_consistency(conn):
     print("\n  [4] Kiểm tra tính nhất quán...")
 
-    raw_stock = conn.execute(
-        text("SELECT COUNT(DISTINCT (symbol, time)) FROM raw.stock_prices")
-    ).scalar_one()
-
-    staging_stock = conn.execute(
-        text("SELECT COUNT(*) FROM staging.stock_prices")
-    ).scalar_one()
-
-    assert staging_stock >= raw_stock * 0.95, \
-        f" Staging stock ({staging_stock}) mất quá nhiều dòng so với raw ({raw_stock})!"
-    print(f" Raw stock: {raw_stock} → Staging stock: {staging_stock} ")
+    # So sánh business key theo cả hai chiều: cùng số dòng chưa đủ để khớp dữ liệu.
+    for source, target in [
+        ("SELECT symbol, time FROM raw.stock_prices",
+         "SELECT symbol, date FROM staging.stock_prices"),
+        ("SELECT symbol, date FROM staging.stock_prices",
+         "SELECT symbol, time FROM raw.stock_prices"),
+    ]:
+        mismatch = conn.execute(text(
+            f"SELECT COUNT(*) FROM ({source} EXCEPT {target}) AS unmatched"
+        )).scalar_one()
+        if mismatch != 0:
+            raise ValueError(
+                f"Raw/staging stock có {mismatch} business key không khớp!"
+            )
+    print(" Raw/staging stock: business key khớp theo cả hai chiều")
 
     print(" Consistency check passed!")
 
@@ -131,7 +141,7 @@ def run_validate():
         check_valid_values(conn)
         check_row_consistency(conn)
 
-    print("\n Tất cả validate passed! Pipeline data is clean!")
+    print("\n Tất cả kiểm tra đã cấu hình đều passed!")
 
 
 if __name__ == "__main__":

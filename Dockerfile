@@ -2,7 +2,7 @@
 FROM python:3.12-slim
 
 # Tạo thư mục làm việc trong container
-WORKDIR / app
+WORKDIR /app
 # Copy requirements trước (để cache layer)
 COPY requirements.txt .
 
