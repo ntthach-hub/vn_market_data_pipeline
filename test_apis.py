@@ -1,44 +1,17 @@
-import requests
-from vnstock import Vnstock
+"""Manual smoke test for the three live sources without writing to PostgreSQL."""
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-# TEST 1: VNSTOCK - Giá cổ phiếu VN
-print("=" * 50)
-print("TEST 1: VNSTOCK")
-print("=" * 50)
-stock = Vnstock().stock(symbol="VNM", source="VCI")
-df_stock = stock.quote.history(
-    start="2024-01-01",
-    end="2024-12-31",
-    interval="1D"
-)
-print(df_stock.head(3))
-print("Shape:", df_stock.shape)
-print("Columns:", df_stock.columns.tolist())
+from pipelines.extract import extract_crypto, extract_exchange_rates, extract_stock
 
-# TEST 2: COINGECKO - Giá crypto
-print("\n" + "=" * 50)
-print("TEST 2: COINGECKO")
-print("=" * 50)
 
-response = requests.get(
-    "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
-    params={"vs_currency": "usd", "days": "7"}
-)
-data = response.json()
-prices = data["prices"][:3]
-print("Sample prices (timestamp, price):")
-for p in prices:
-    print(p)
+def main():
+    today = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+    start = (today - timedelta(days=7)).isoformat()
+    print(extract_stock("VNM", start, today.isoformat()).head(3))
+    print(extract_crypto("BTC", "bitcoin", days=7).head(3))
+    print(extract_exchange_rates().head(3))
 
-# TEST 3: EXCHANGE RATE - Tỉ giá USD/VND
-print("\n" + "=" * 50)
-print("TEST 3: EXCHANGE RATE")
-print("=" * 50)
 
-response = requests.get(
-    "https://api.exchangerate-api.com/v4/latest/USD"
-)
-data = response.json()
-print("USD -> VND:", data["rates"]["VND"])
-print("USD -> EUR:", data["rates"]["EUR"])
-print("Date:", data["date"])
+if __name__ == "__main__":
+    main()

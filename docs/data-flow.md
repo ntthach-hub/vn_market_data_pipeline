@@ -5,6 +5,7 @@ Sơ đồ phản ánh code hiện tại; mũi tên là luồng dữ liệu, khô
 ```mermaid
 flowchart TD
     VN[VNStock: VNM, VCB, FPT] --> ES[Extract stock: MAX time per symbol]
+    CSV[Historical stock CSV: VNM, VCB, FPT] --> CS[Read and validate stock files]
     CG[CoinGecko: BTC, ETH] --> EC[Extract crypto: rolling 30 days]
     FX[ExchangeRate API: USD to VND, EUR, JPY] --> EF[Extract latest exchange rates]
 
@@ -14,6 +15,7 @@ flowchart TD
         RF[exchange_rates]
     end
     ES -->|UPSERT symbol, time| RS
+    CS -->|UPSERT symbol, time| RS
     EC -->|UPSERT symbol, timestamp_ms| RC
     EF -->|UPSERT base, target, date| RF
 
@@ -46,7 +48,7 @@ flowchart TD
 
 `main.py`: `run_extract()` → `run_transform()` → `run_load()` → `run_validate()`.
 
-- Extract: stock lấy từ ngày cuối đã có, hoặc 365 ngày khi chưa có dữ liệu. Crypto lấy lại 30 ngày. FX lấy snapshot mới nhất.
+- Extract: stock qua API lấy từ ngày cuối đã có, hoặc 365 ngày khi chưa có dữ liệu. Nếu đặt `STOCK_CSV_DIR`, stock đọc lại toàn bộ các CSV và UPSERT theo mã/ngày. Crypto lấy lại 30 ngày. FX lấy snapshot mới nhất.
 - Transform: đọc toàn bộ raw, chuẩn hóa và UPSERT sang staging.
 - Load: đọc toàn bộ staging, tính lại daily summary rồi UPSERT sang analytics.
 - Validate: yêu cầu 7 bảng không rỗng; kiểm tra một số cột NULL, giá trị và symbol; so khớp business key cổ phiếu raw/staging theo hai chiều.

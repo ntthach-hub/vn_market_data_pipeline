@@ -23,6 +23,8 @@ services:
   pipeline:
     build: .
     container_name: vn_market_pipeline
+    env_file:
+      - .env
     depends_on:
       postgres:
         condition: service_healthy

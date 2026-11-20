@@ -1,5 +1,9 @@
 # Development Log — VN Market Data Pipeline
 
+Nhật ký này lưu các mốc phát triển cũ. Xem [README](../README.MD) để chạy phiên bản hiện tại và [data flow](data-flow.md) để biết phạm vi incremental.
+
+Bản gốc được kiểm tra lại ở trạng thái trước khi nạp CSV. Bảng analytics có 851 dòng, gồm 789 dòng cổ phiếu và 62 dòng crypto, đến 07/09/2026. Truy vấn theo khóa `(date, symbol)` trả về 0 dòng trùng.
+
 Ghi lại quá trình làm, những thứ đã sửa, đã bỏ và lý do tại sao.
 
 ---

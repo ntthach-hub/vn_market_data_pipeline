@@ -127,7 +127,7 @@ def upsert_to_staging(df: pd.DataFrame, table: str, conflict_cols: list):
 # HÀM CHÍNH
 def run_transform():
     print("=" * 50)
-    print("TRANSFORM PHASE (incremental)")
+    print("TRANSFORM PHASE")
     print("=" * 50)
  
     df_stock = transform_stock()
@@ -144,4 +144,3 @@ def run_transform():
  
 if __name__ == "__main__":
     run_transform()
- 

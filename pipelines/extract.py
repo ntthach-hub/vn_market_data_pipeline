@@ -2,13 +2,35 @@ import os
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
+from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text, Table, MetaData
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from vnstock import Vnstock
 from urllib.parse import quote_plus
+from zoneinfo import ZoneInfo
 
 load_dotenv()
+
+STOCK_SOURCE_KEYS = {
+    "ssi": ("SSI_API_KEY", "SSI_API_SECRET"),
+    "dnse": ("DNSE_API_KEY", "DNSE_API_SECRET"),
+    "fhsc": ("FHSC_API_KEY",),
+    "tcbs": ("TCBS_API_KEY",),
+}
+STOCK_SYMBOLS = ("VNM", "VCB", "FPT")
+
+
+def get_stock_source() -> str:
+    source = os.getenv("VNSTOCK_SOURCE", "").strip().lower()
+    if source not in STOCK_SOURCE_KEYS:
+        raise ValueError(
+            "Set STOCK_CSV_DIR=data/stocks in .env to read CSV files, "
+            "or set VNSTOCK_SOURCE to ssi, dnse, fhsc or tcbs to use Open API."
+        )
+    missing = [name for name in STOCK_SOURCE_KEYS[source] if not os.getenv(name, "").strip()]
+    if missing:
+        raise ValueError(f"Missing credentials for {source}: set {', '.join(missing)} in .env.")
+    return source
 
 # KẾT NỐI DATABASE
 def get_engine():
@@ -20,32 +42,21 @@ def get_engine():
     url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
     return create_engine(url)
 
-# UPSERT VÀO RAW LAYER (thay cho load_to_raw + TRUNCATE cũ)
+# UPSERT VÀO RAW LAYER
 def upsert_to_raw(df: pd.DataFrame, table: str, conflict_cols: list):
     if df.empty:
         print(f"  Không có dòng mới cho raw.{table}, bỏ qua.")
         return
 
-    # --- DEBUG: Kiểm tra dữ liệu trước khi insert ---
-    print(f"  DEBUG - Columns: {df.columns.tolist()}")
-    print(f"  DEBUG - Shape: {df.shape}")
-    print(f"  DEBUG - First 2 rows:\n{df.head(2)}")
-    
     # Chuyển đổi cột datetime thành string để SQLAlchemy xử lý đúng
     for col in df.select_dtypes(include=['datetime64']).columns:
         df[col] = df[col].astype(str)
-    # --- HẾT DEBUG ---
 
     engine = get_engine()
     metadata = MetaData(schema="raw")
     tbl = Table(table, metadata, autoload_with=engine)
 
     records = df.to_dict(orient="records")
-    
-    # In ra bản ghi đầu tiên để kiểm tra
-    if records:
-        print(f"  DEBUG - First record keys: {list(records[0].keys())}")
-        print(f"  DEBUG - First record values: {list(records[0].values())}")
 
     update_cols = {
         c.name: c
@@ -73,39 +84,75 @@ def get_last_extracted_date(table: str, symbol: str, date_col: str):
     return result
 # EXTRACT 1: VNSTOCK - Giá cổ phiếu
 def extract_stock(symbol: str, start: str, end: str) -> pd.DataFrame:
-    print(f"  Extracting stock: {symbol} from {start} to {end}...")
-    stock = Vnstock().stock(symbol=symbol, source='VCI')
-    df = stock.quote.history(start=start, end=end, interval='1D')
+    source = get_stock_source()
+    from vnstock import Market
 
-    # --- DEBUG ---
-    print(f"  DEBUG - Columns: {df.columns.tolist()}")
-    print(f"  DEBUG - First 2 rows:\n{df.head(2)}")
-    # --- HẾT DEBUG ---
-
-    # Tìm cột thời gian (có thể là 'time', 'Date', 'TradingDate', hoặc 'datetime')
-    time_col = None
-    for col in ['time', 'Date', 'TradingDate', 'datetime', 'trading_date']:
-        if col in df.columns:
-            time_col = col
-            break
-    
-    if time_col is None:
-        raise KeyError(f"Không tìm thấy cột thời gian. Các cột hiện có: {df.columns.tolist()}")
-    
-    # Đảm bảo cột thời gian là datetime và chỉ lấy phần ngày
-    df['time'] = pd.to_datetime(df[time_col]).dt.normalize()
-    
-    # Xóa cột time cũ (nếu tên khác)
-    if time_col != 'time':
-        df = df.drop(columns=[time_col])
-
-    # Thêm cột symbol và ingested_at
+    print(f"  Extracting stock: {symbol} from {source} ({start} to {end})...")
+    bars = Market(source).equity(symbol).ohlcv(start=start, end=end, interval="1D")
+    columns = ["time", "open", "high", "low", "close", "volume"]
+    if bars.empty:
+        return pd.DataFrame(columns=[*columns, "symbol", "ingested_at"])
+    df = bars.loc[:, columns].copy()
+    trading_time = pd.to_datetime(df["time"])
+    if trading_time.dt.tz is not None:
+        trading_time = trading_time.dt.tz_convert("Asia/Ho_Chi_Minh")
+    df["time"] = trading_time.dt.date
+    df = df.drop_duplicates(subset=["time"], keep="last")
     df["symbol"] = symbol
     df["ingested_at"] = datetime.now()
 
-
     print(f"  Got {len(df)} rows for {symbol}")
     return df
+
+
+def extract_stock_csv(directory: Path, symbol: str) -> pd.DataFrame:
+    """Read a daily OHLCV export with prices in thousands of VND."""
+    path = directory / f"{symbol}.csv"
+    if not path.is_file():
+        raise FileNotFoundError(f"Stock CSV not found: {path}")
+    columns = ["Ticker", "Date", "Open", "High", "Low", "Close", "Volume"]
+    rows = pd.read_csv(path, encoding="utf-8-sig")
+    missing = set(columns) - set(rows.columns)
+    if missing:
+        raise ValueError(f"{path}: missing columns: {', '.join(sorted(missing))}")
+    rows = rows.loc[:, columns].copy()
+    rows.columns = ["symbol", "time", "open", "high", "low", "close", "volume"]
+    rows["symbol"] = rows["symbol"].astype("string").str.strip().str.upper()
+    if rows.empty or rows["symbol"].isna().any() or (rows["symbol"] != symbol).any():
+        raise ValueError(f"{path}: expected at least one row and only ticker {symbol}.")
+    rows["time"] = pd.to_datetime(rows["time"], format="%Y-%m-%d", errors="raise").dt.date
+    if rows["time"].isna().any() or rows.duplicated(["symbol", "time"]).any():
+        raise ValueError(f"{path}: found missing or duplicate trading dates.")
+    prices = ["open", "high", "low", "close"]
+    for column in [*prices, "volume"]:
+        rows[column] = pd.to_numeric(rows[column], errors="raise")
+    if not ((rows[prices] > 0) & (rows[prices] < float("inf"))).all().all():
+        raise ValueError(f"{path}: OHLC prices must be finite and greater than zero.")
+    volume = rows["volume"]
+    if not ((volume >= 0) & (volume % 1 == 0) & (volume < 2**63)).all():
+        raise ValueError(f"{path}: volume must be a non-negative integer within BIGINT range.")
+    rows["volume"] = volume.astype("int64")
+    print(f"  Read {len(rows)} historical stock rows from {path.name} ({rows['time'].min()} to {rows['time'].max()}).")
+    return rows
+
+
+def run_stock_extract():
+    directory = os.getenv("STOCK_CSV_DIR", "").strip()
+    if directory:
+        # Validate all requested files before writing any stock rows.
+        batches = [extract_stock_csv(Path(directory), symbol) for symbol in STOCK_SYMBOLS]
+        for batch in batches:
+            upsert_to_raw(batch, "stock_prices", conflict_cols=["symbol", "time"])
+        return
+
+    get_stock_source()
+    today = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+    for symbol in STOCK_SYMBOLS:
+        last_date = get_last_extracted_date("stock_prices", symbol, "time")
+        start = last_date or today - timedelta(days=365)
+        batch = extract_stock(symbol, start.isoformat(), today.isoformat())
+        upsert_to_raw(batch, "stock_prices", conflict_cols=["symbol", "time"])
+
 
 # EXTRACT 2: COINGECKO - Giá crypto
 def extract_crypto(symbol: str, coin_id: str, days: int = 30) -> pd.DataFrame:
@@ -145,19 +192,6 @@ def extract_exchange_rates(base: str = "USD", targets: list = ["VND", "EUR"]) ->
     print(f"   Got {len(df)} exchange rates")
     return df
 
-# LOAD VÀO RAW LAYER
-def load_to_raw(df: pd.DataFrame, table: str):
-    engine = get_engine()
-    df.to_sql(
-        table,
-        schema="raw",
-        con=engine,
-        if_exists="append",
-        index=False
-    )
-    print(f"  Loaded {len(df)} rows to raw.{table}")
-
-
 # HÀM CHÍNH
 def run_extract():
     print("=" * 50)
@@ -165,20 +199,7 @@ def run_extract():
     print("=" * 50)
 
 
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    
- 
-    # Stock: chỉ fetch từ ngày cuối cùng đã có trong DB tới hiện tại.
-    # Lần đầu (chưa có data) -> fallback lấy 365 ngày.
-    for symbol in ["VNM", "VCB", "FPT"]:
-        last_date = get_last_extracted_date("stock_prices", symbol, "time")
-        if last_date:
-            start_date = last_date.strftime("%Y-%m-%d")
-        else:
-            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
- 
-        df = extract_stock(symbol, start_date, end_date)
-        upsert_to_raw(df, "stock_prices", conflict_cols=["symbol", "time"])
+    run_stock_extract()
  
     # Crypto: CoinGecko luôn trả nguyên cửa sổ N ngày gần nhất,
     # upsert xử lý phần trùng lặp giúp mình.
@@ -192,8 +213,6 @@ def run_extract():
     df = extract_exchange_rates("USD", ["VND", "EUR", "JPY"])
     upsert_to_raw(df, "exchange_rates", conflict_cols=["base", "target", "date"])
  
-    print("\n Extract phase complete (incremental)!")
- 
-
+    print("\n Extract phase complete!")
 if __name__ == "__main__":
     run_extract()

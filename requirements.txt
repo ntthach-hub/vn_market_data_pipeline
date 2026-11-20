@@ -1,4 +1,6 @@
-vnstock==4.0.4
+--extra-index-url https://vnstocks.com/api/packages
+vnstock==6.0.1
+vnstock-oapi==0.1.2
 pandas
 sqlalchemy
 psycopg2-binary
